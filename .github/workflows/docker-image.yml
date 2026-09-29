@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
-
+      
 env:
   AWS_REGION: us-east-1
   EKS_CLUSTER_NAME: eks-01teste
@@ -17,9 +17,11 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/api-ppteste
 
 jobs:
+
   deploy:
     name: Push Image and Deploy to EKS
     runs-on: ubuntu-latest
+    environment: homo
 
     # Só executa no push da branch main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
