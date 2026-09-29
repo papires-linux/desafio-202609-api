@@ -1,0 +1,121 @@
+name: CI/CD - simples api.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: eks-01teste
+  K8S_NAMESPACE: homo
+  DEPLOYMENT_NAME: api-ppteste
+  CONTAINER_NAME: api-ppteste
+  DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/api-ppteste
+
+jobs:
+  deploy:
+    name: Push Image and Deploy to EKS
+    runs-on: ubuntu-latest
+
+    # Só executa no push da branch main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      id-token: write
+      contents: read
+    # needs:
+    #   - build
+
+    steps:
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Docker Buildx
+      # ----------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ----------------------------------------------------------
+      # Login Docker Hub
+      # ----------------------------------------------------------
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # ----------------------------------------------------------
+      # Build and Push Docker Image
+      # ----------------------------------------------------------
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+            ${{ env.DOCKER_IMAGE }}:latest
+
+      
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ----------------------------------------------------------
+      # Configure kubectl
+      # ----------------------------------------------------------
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
+      # ----------------------------------------------------------
+      # Verify Kubernetes connection
+      # ----------------------------------------------------------
+      - name: Verify EKS connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      # ----------------------------------------------------------
+      # Apply Kubernetes Manifests
+      # ----------------------------------------------------------
+      - name: Apply K8s Manifests
+        env:
+          DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }} # ou a variável usada no seu pipeline
+          GITHUB_SHA: ${{ github.sha }}
+          K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
+        run: |
+          # Processa as variáveis dentro da pasta k8s/ e aplica os YAMLs
+          for file in k8s/*.yaml; do
+            envsubst < "$file" | kubectl apply -f - --namespace $K8S_NAMESPACE
+          done
+
+      # ----------------------------------------------------------
+      # Wait for Rollout
+      # ----------------------------------------------------------
+      - name: Wait for deployment rollout
+        run: |
+          kubectl rollout status \
+            deployment/$DEPLOYMENT_NAME \
+            --namespace $K8S_NAMESPACE \
+            --timeout=300s
+
+      # ----------------------------------------------------------
+      # Show Deployment
+      # ----------------------------------------------------------
+      - name: Verify deployment
+        run: |
+          kubectl get deployment $DEPLOYMENT_NAME --namespace $K8S_NAMESPACE
+          kubectl get pods --namespace $K8S_NAMESPACE -o wide
