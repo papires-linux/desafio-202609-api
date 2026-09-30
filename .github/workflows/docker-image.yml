@@ -1,6 +1,7 @@
 name: CI/CD - simples api.
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -17,7 +18,6 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME }}/api-ppteste
 
 jobs:
-
   deploy:
     name: Push Image and Deploy to EKS
     runs-on: ubuntu-latest
